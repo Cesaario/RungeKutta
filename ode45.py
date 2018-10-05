@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pylab as plt
 from scipy import signal
+from scipy.integrate import RK45
+from scipy.integrate import odeint
 import json
 
 import socketio
@@ -25,16 +27,15 @@ def connect(sid, environ):
 def disconnect(sid):
     print('Desconectou: ', sid)
 
-@sio.on('teste')
+@sio.on('valoresIniciais')
 def valoresIniciais(sid, num, den):
 	calculoValoresIniciais(num, den)
 
-def teste2():
-	print()
-	#a = np.identity(5);
-	#obj = json.dumps(a.tolist())
-	#sio.emit('respostaTeste', data=(obj))
+@sio.on('calculoODE')
+def ODE(sid, tempoAtual, tempoAlvo, tEscala, t, x, A, B, C, x0, t_tend, u_tend, y_tend):
+	calculoODE45(tempoAtual, tempoAlvo, tEscala, t, x, A, B, C, x0, t_tend, u_tend, y_tend)
 
+'''
 def ode45_step(f, x, t, dt, *args):
     """
     One step of 4th Order Runge-Kutta method
@@ -52,8 +53,9 @@ def ode45(f, t, x0, *args):
     """
     n = len(t)
     x = np.zeros((n, len(x0)))
-    print(len(x))
-    x[0] = x0
+    #print(len(x))
+    #x[0] = x0
+    x = x0
     for i in range(n-1):
         dt = t[i+1] - t[i] 
         x[i+1] = ode45_step(f, x[i], t[i], dt, *args)
@@ -65,6 +67,68 @@ def f(t, x, u, a, b):
     """
     dydt = [omega, -b*omega - c*np.sin(theta)]
     return np.array(dydt)
+'''
+def uat(t):
+	return (1 + np.sign(t-0.4)) / 2;
+
+def odeAxBu(x, t, u, A, B):
+	batata = np.matmul(A, x) + B*u
+	return batata;
+
+
+def calculoODE45(tempoAtual, tempoAlvo, tEscala, tString, xString, AString, BString, CString, x0String, t_tendString, u_tendString, y_tendString):
+	#t = np.asarray(json.loads(tString));
+	x = np.asarray(json.loads(xString));
+	A = np.asarray(json.loads(AString));
+	B = np.asarray(json.loads(BString));
+	C = np.asarray(json.loads(CString));
+	x0 = np.asarray(json.loads(x0String));
+	t_tend = np.asarray(json.loads(t_tendString));
+	u_tend = np.asarray(json.loads(u_tendString));
+	y_tend = np.asarray(json.loads(y_tendString));
+
+	u_atual = uat(tempoAtual)
+	t = tEscala * np.linspace(t_tend[-1], tempoAlvo, 4)
+
+	x0 = np.squeeze(np.asarray(x0))
+	#x ou x0 no argumento?
+	#print(odeint(odeAxBu, x0, t, args=(x0, A, B, u_atual)))
+	#x = odeint(odeAxBu, x0, t, args=(x0, A, B, u_atual))
+	#x = RK45(odeAxBu(t, x0, A, B, u_atual), t[0], x0, t[-1])
+
+	x = x0;
+	print(x)
+	print(x0)
+	print(t)
+	print(u_atual)
+	print(A)
+	print(B)
+	print("-----------")
+	x = odeint(odeAxBu, x0, t, args=(u_atual, A, B))
+
+	print(x)
+	#x = ode45(odeAxBu, t, x0, A, x, B, u_atual);
+	aux = np.ndarray.tolist(np.linspace(0, 3-1, 3))
+	x0 = np.transpose(np.delete(x,aux,0))
+	#y = C * x0;
+
+	y = np.matmul(C,x0)
+
+	#t_tend = np.transpose(np.asmatrix(t_tend))
+	#u_tend = np.transpose(np.asmatrix(u_tend))
+	#y_tend = np.transpose(np.asmatrix(y_tend))
+
+	#concT = np.asarray(t[-1]/tEscala)
+	concT = [t[-1]/tEscala]
+	t_tend = np.concatenate((t_tend, concT))
+
+	concU = [u_atual]
+	u_tend = np.concatenate((u_tend, concU))
+
+	concY = y
+	y_tend = np.concatenate((y_tend, concY));
+
+	sio.emit('respostaCalculoODE', data=(json.dumps(t.tolist()), json.dumps(t_tend.tolist()), json.dumps(u_tend.tolist()), json.dumps(y_tend.tolist()), json.dumps(x0.tolist())))
 
 def calculoValoresIniciais(NumString, DenString):
 
@@ -77,7 +141,8 @@ def calculoValoresIniciais(NumString, DenString):
 	na = np.size(Den)
 	nb = np.size(Num)
 
-	#FAZER O END AQUI if(nb < na - 1) 
+	zero = np.zeros(na-nb-1)
+	Num = np.concatenate((zero, Num))
 
 	n = np.size(Den) - 1
 	a1 = np.zeros((n,1))
@@ -92,16 +157,11 @@ def calculoValoresIniciais(NumString, DenString):
 	B = np.zeros((n-1, 1))
 	b1 = [[1]]
 	B = np.concatenate((B, b1), 0)
+	B = np.squeeze(np.asarray(B))
 	C = Num[::-1]
 	x0 = np.zeros((1,n))
-
-	print(json.dumps(A.tolist()))
 	#Enviar de volta A, B, C, x0, n
-
 	sio.emit('respostaValoresIniciais', data=(json.dumps(A.tolist()), json.dumps(B.tolist()), json.dumps(C.tolist()), json.dumps(x0.tolist()), n))
-
-#plt.plot(x)
-#plt.show()
     
 if __name__ == '__main__':
     app = socketio.Middleware(sio, app)
